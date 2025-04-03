@@ -1,3 +1,4 @@
+import os
 import random
 import re
 import time
@@ -5,6 +6,9 @@ import time
 import numpy as np
 import streamlit as st
 import torch
+
+torch.classes.__path__ = [os.path.join(torch.__path__[0], torch.classes.__file__)]
+
 
 st.set_page_config(page_title="MiniMind", initial_sidebar_state="collapsed")
 
