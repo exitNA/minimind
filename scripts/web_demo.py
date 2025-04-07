@@ -106,7 +106,6 @@ def load_model_tokenizer(model_path):
     )
     tokenizer = AutoTokenizer.from_pretrained(
         model_path,
-        use_fast=False,
         trust_remote_code=True
     )
     model = model.eval().to(device)

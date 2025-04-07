@@ -154,7 +154,7 @@ def main():
                 max_new_tokens=args.max_seq_len,
                 temperature=args.temperature,
                 top_p=args.top_p,
-                stream=True,
+                stream=args.stream,
                 pad_token_id=tokenizer.pad_token_id
             )
 
