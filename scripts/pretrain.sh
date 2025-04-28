@@ -1,0 +1,1 @@
+python trainer/train_pretrain.py --use_wandb --wandb_project MiniMind-Pretrain --data_path ./data/pretrain_hq.jsonl --out_dir ./out
