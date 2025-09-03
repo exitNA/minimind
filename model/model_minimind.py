@@ -41,7 +41,7 @@ class MiniMindConfig(PretrainedConfig):
         """
         初始化模型配置参数。
 
-        参数:
+        Args:
             dropout (float): Dropout概率，默认为0.0。
             bos_token_id (int): 序列开始标记的token ID，默认为1。
             eos_token_id (int): 序列结束标记的token ID，默认为2。
@@ -67,7 +67,7 @@ class MiniMindConfig(PretrainedConfig):
             seq_aux (bool): 是否在序列级别上计算辅助损失，默认为True。
             norm_topk_prob (bool): 是否对top-k专家的概率进行归一化，默认为True。
 
-        返回值:
+        Returns:
             无返回值，初始化实例属性。
         """
         super().__init__(**kwargs)
@@ -85,7 +85,6 @@ class MiniMindConfig(PretrainedConfig):
         self.rms_norm_eps = rms_norm_eps
         self.rope_theta = rope_theta
         self.flash_attn = flash_attn
-
         ####################################################
         # Here are the specific configurations of MOE
         # When use_moe is false, the following is invalid
@@ -100,7 +99,6 @@ class MiniMindConfig(PretrainedConfig):
         self.norm_topk_prob = norm_topk_prob  # 是否标准化top-k概率
 
 
-
 # 📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘
 #                                             MiniMind Model
 # 📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘📘
@@ -111,15 +109,21 @@ from torch import nn
 from transformers.activations import ACT2FN
 from typing import Optional, Tuple, List, Union
 import torch.nn.functional as F
-from transformers import PreTrainedModel, GenerationMixin, PretrainedConfig
+from transformers import PreTrainedModel, GenerationMixin
 from transformers.modeling_outputs import CausalLMOutputWithPast
 
 
-# 定义RMSNorm类，继承自PyTorch的Module基类
 class RMSNorm(torch.nn.Module):
-    # 构造函数，接收输入维度和数值稳定参数
     def __init__(self, dim: int, eps: float = 1e-5):
-        # 调用父类Module的构造函数，初始化模块
+        """构造函数，接收输入维度和数值稳定参数
+
+        Args:
+            dim (int): 输入特征的维度大小
+            eps (float, optional): 用于数值稳定的小常数，防止除零错误. 默认值为1e-5
+
+        Returns:
+            None: 该函数不返回任何值，仅用于初始化对象属性
+        """
         super().__init__()
         # 存储数值稳定性参数（防止除零错误），默认1e-5
         self.eps = eps
@@ -150,12 +154,12 @@ def precompute_freqs_cis(dim: int, end: int = int(32 * 1024), theta: float = 1e6
     该函数生成余弦和正弦频率值，用于实现旋转位置编码(RoPE)。
     通过预计算这些值，可以在后续的注意力计算中快速应用位置编码。
 
-    参数:
+    Args:
         dim (int): 嵌入维度大小，必须为偶数
         end (int): 序列最大长度，默认为32768
         theta (float): 频率基数参数，默认为1e6
 
-    返回:
+    Returns:
         tuple: 包含两个张量的元组
             - freqs_cos (Tensor): 余弦频率值张量，形状为[end, dim]
             - freqs_sin (Tensor): 正弦频率值张量，形状为[end, dim]
@@ -183,7 +187,7 @@ def apply_rotary_pos_emb(q, k, cos, sin, position_ids=None, unsqueeze_dim=1):
     该函数实现旋转位置编码（Rotary Positional Embedding），通过将位置信息编码到注意力机制中的
     查询（q）和键（k）向量来增强模型对序列位置的感知能力。
 
-    参数:
+    Args:
         q (torch.Tensor): 查询向量，形状通常为 [batch_size, seq_len, num_heads, head_dim]
         k (torch.Tensor): 键向量，形状通常为 [batch_size, seq_len, num_heads, head_dim]
         cos (torch.Tensor): 余弦位置编码值
@@ -191,14 +195,15 @@ def apply_rotary_pos_emb(q, k, cos, sin, position_ids=None, unsqueeze_dim=1):
         position_ids (torch.Tensor, optional): 位置索引，用于指定每个位置对应的编码
         unsqueeze_dim (int): 在应用编码时进行维度扩展的维度位置，默认为1
 
-    返回:
+    Returns:
         tuple: 包含应用了旋转位置编码的查询和键向量
             - q_embed (torch.Tensor): 应用位置编码后的查询向量
             - k_embed (torch.Tensor): 应用位置编码后的键向量
     """
     def rotate_half(x):
-        # 将输入张量在最后一个维度上分为两半，并交换它们的位置，前半部分取负号
-        # 这是旋转位置编码的核心操作，用于实现向量的旋转
+        """
+        旋转位置编码的核心操作，用于实现向量的旋转: 将输入张量在最后一个维度上分为两半，并交换它们的位置，前半部分取负号
+        """
         return torch.cat((-x[..., x.shape[-1] // 2:], x[..., : x.shape[-1] // 2]), dim=-1)
 
     # 对查询和键向量分别应用旋转位置编码
@@ -215,13 +220,13 @@ def repeat_kv(x: torch.Tensor, n_rep: int) -> torch.Tensor:
     该函数通过在指定维度上重复张量元素来实现键值头的扩展，等价于
     torch.repeat_interleave(x, dim=2, repeats=n_rep) 的功能。
 
-    参数:
+    Args:
         x (torch.Tensor): 输入张量，形状为 (bs, slen, num_key_value_heads, head_dim)
                          其中 bs 为批次大小，slen 为序列长度，
                          num_key_value_heads 为键值头数量，head_dim 为头维度
         n_rep (int): 重复倍数，指定每个键值头需要重复的次数
 
-    返回:
+    Returns:
         torch.Tensor: 扩展后的张量，形状为 (bs, slen, num_key_value_heads * n_rep, head_dim)
     """
     bs, slen, num_key_value_heads, head_dim = x.shape
@@ -235,26 +240,34 @@ def repeat_kv(x: torch.Tensor, n_rep: int) -> torch.Tensor:
     )
 
 
-
 class Attention(nn.Module):
     def __init__(self, args: MiniMindConfig):
         super().__init__()
         # 确定键值对（KV）的头数：若未指定则与注意力头数相同，否则使用指定值
         self.num_key_value_heads = args.num_attention_heads if args.num_key_value_heads is None else args.num_key_value_heads
         assert args.num_attention_heads % self.num_key_value_heads == 0
-
-        self.n_local_heads = args.num_attention_heads  # 本地注意力头数（查询头数）
-        self.n_local_kv_heads = self.num_key_value_heads # 本地键值头数
-        self.n_rep = self.n_local_heads // self.n_local_kv_heads # 每个键值头需要重复的次数（用于匹配查询头数）
-        self.head_dim = args.hidden_size // args.num_attention_heads # 每个注意力头的维度（隐藏层大小 ÷ 注意力头数）
+        # 本地注意力头数（查询头数）
+        self.n_local_heads = args.num_attention_heads
+        # 本地键值头数
+        self.n_local_kv_heads = self.num_key_value_heads
+        # 每个键值头需要重复的次数（用于匹配查询头数）
+        self.n_rep = self.n_local_heads // self.n_local_kv_heads
+        # 每个注意力头的维度（隐藏层大小 ÷ 注意力头数）
+        self.head_dim = args.hidden_size // args.num_attention_heads
 
         # 线性投影层：将输入映射到查询（Q）、键（K）、值（V）
-        self.q_proj = nn.Linear(args.hidden_size, args.num_attention_heads * self.head_dim, bias=False) # Q投影：输出维度=查询头数×头维度
-        self.k_proj = nn.Linear(args.hidden_size, self.num_key_value_heads * self.head_dim, bias=False) # K投影：输出维度=键值头数×头维度
-        self.v_proj = nn.Linear(args.hidden_size, self.num_key_value_heads * self.head_dim, bias=False) # V投影：输出维度=键值头数×头维度
-        self.o_proj = nn.Linear(args.num_attention_heads * self.head_dim, args.hidden_size, bias=False) # 输出投影：将注意力结果映射回隐藏层大小
-        self.attn_dropout = nn.Dropout(args.dropout) # 注意力分数的dropout（正则化）
-        self.resid_dropout = nn.Dropout(args.dropout) # 注意力输出的dropout（正则化）
+        # Q投影：输出维度=查询头数×头维度
+        self.q_proj = nn.Linear(args.hidden_size, args.num_attention_heads * self.head_dim, bias=False)
+        # K投影：输出维度=键值头数×头维度
+        self.k_proj = nn.Linear(args.hidden_size, self.num_key_value_heads * self.head_dim, bias=False)
+        # V投影：输出维度=键值头数×头维度
+        self.v_proj = nn.Linear(args.hidden_size, self.num_key_value_heads * self.head_dim, bias=False)
+        # 输出投影：将注意力结果映射回隐藏层大小
+        self.o_proj = nn.Linear(args.num_attention_heads * self.head_dim, args.hidden_size, bias=False)
+        # 注意力分数的dropout（正则化）
+        self.attn_dropout = nn.Dropout(args.dropout)
+        # 注意力输出的dropout（正则化）
+        self.resid_dropout = nn.Dropout(args.dropout)
         self.dropout = args.dropout
 
         # 判断是否使用Flash Attention加速：需PyTorch内置scaled_dot_product_attention且开启配置
@@ -267,70 +280,92 @@ class Attention(nn.Module):
                 past_key_value: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
                 use_cache=False,
                 attention_mask: Optional[torch.Tensor] = None):
-        bsz, seq_len, _ = x.shape # 解析输入的batch_size、序列长度
+        # 解析输入的batch_size、序列长度
+        bsz, seq_len, _ = x.shape
         # 对输入x进行线性投影，得到Q、K、V
         xq, xk, xv = self.q_proj(x), self.k_proj(x), self.v_proj(x)
 
         # 重塑Q、K、V的形状，分离出注意力头维度
-        xq = xq.view(bsz, seq_len, self.n_local_heads, self.head_dim)    # Q形状：(bsz, seq_len, n_local_heads, head_dim)
-        xk = xk.view(bsz, seq_len, self.n_local_kv_heads, self.head_dim) # K形状：(bsz, seq_len, n_local_kv_heads, head_dim)
-        xv = xv.view(bsz, seq_len, self.n_local_kv_heads, self.head_dim) # V形状：(bsz, seq_len, n_local_kv_heads, head_dim)
+        # Q形状：(bsz, seq_len, n_local_heads, head_dim)
+        xq = xq.view(bsz, seq_len, self.n_local_heads, self.head_dim)
+        # K形状：(bsz, seq_len, n_local_kv_heads, head_dim)
+        xk = xk.view(bsz, seq_len, self.n_local_kv_heads, self.head_dim)
+        # V形状：(bsz, seq_len, n_local_kv_heads, head_dim)
+        xv = xv.view(bsz, seq_len, self.n_local_kv_heads, self.head_dim)
 
         # 应用旋转位置编码（RoPE）：将位置信息注入Q和K
+        # TODO: 为什么是对Q、K添加位置编码而不是输入X？
         cos, sin = position_embeddings
-        xq, xk = apply_rotary_pos_emb(xq, xk, cos[:seq_len], sin[:seq_len]) # 仅使用与当前序列长度匹配的位置编码
+        # 仅使用与当前序列长度匹配的位置编码
+        xq, xk = apply_rotary_pos_emb(xq, xk, cos[:seq_len], sin[:seq_len])
 
         # kv_cache实现（推理时复用历史KV，避免重复计算）
-        if past_key_value is not None:  # 若存在历史KV，则拼接当前KV与历史KV
-            xk = torch.cat([past_key_value[0], xk], dim=1)  # 拼接K：(bsz, past_seq_len + curr_seq_len, ...)
-            xv = torch.cat([past_key_value[1], xv], dim=1)  # 拼接V：(bsz, past_seq_len + curr_seq_len, ...)
-        past_kv = (xk, xv) if use_cache else None  # 若需缓存，则保存当前KV供后续使用
+        if past_key_value is not None:
+            # 若存在历史KV，则拼接当前KV与历史KV
+            # 拼接K：(bsz, past_seq_len + curr_seq_len, ...)
+            xk = torch.cat([past_key_value[0], xk], dim=1)
+            # 拼接V：(bsz, past_seq_len + curr_seq_len, ...)
+            xv = torch.cat([past_key_value[1], xv], dim=1)
+        # 若需缓存，则保存当前KV供后续使用
+        past_kv = (xk, xv) if use_cache else None
 
         # 调整维度顺序，为注意力计算做准备（将头维度提前）
         xq, xk, xv = (
-            xq.transpose(1, 2),  # Q形状：(bsz, n_local_heads, seq_len, head_dim)
-            repeat_kv(xk, self.n_rep).transpose(1, 2), # K重复n_rep次以匹配查询头数，形状：(bsz, n_local_heads, seq_len, head_dim)
-            repeat_kv(xv, self.n_rep).transpose(1, 2)  # V重复n_rep次以匹配查询头数，形状：(bsz, n_local_heads, seq_len, head_dim)
+            # Q形状：(bsz, n_local_heads, seq_len, head_dim)
+            xq.transpose(1, 2),
+            # K重复n_rep次以匹配查询头数，形状：(bsz, n_local_heads, seq_len, head_dim)
+            repeat_kv(xk, self.n_rep).transpose(1, 2),
+            # V重复n_rep次以匹配查询头数，形状：(bsz, n_local_heads, seq_len, head_dim)
+            repeat_kv(xv, self.n_rep).transpose(1, 2)
         )
 
-        # 若使用Flash Attention且序列长度不为1（避免特殊情况）
         if self.flash and seq_len != 1:
-            dropout_p = self.dropout if self.training else 0.0 # 训练时用配置的dropout率，推理时为0
-            attn_mask = None # 初始化注意力掩码
+            # 若使用Flash Attention且序列长度不为1（避免特殊情况）
+            # 训练时用配置的dropout率，推理时为0
+            dropout_p = self.dropout if self.training else 0.0
+            attn_mask = None
 
-            # 处理注意力掩码（若存在）
             if attention_mask is not None:
+                # 处理注意力掩码
                 # 重塑掩码形状以匹配Flash Attention要求：(bsz, n_local_heads, seq_len, total_seq_len)
                 attn_mask = attention_mask.view(bsz, 1, 1, -1).expand(bsz, self.n_local_heads, seq_len, -1)
-                attn_mask = attn_mask.bool() if attention_mask is not None else None # 转为布尔型掩码（True表示需要屏蔽）
+                # 转为布尔型掩码（True表示需要屏蔽）
+                attn_mask = attn_mask.bool() if attention_mask is not None else None
 
             # 调用PyTorch内置的Flash Attention加速实现
             output = F.scaled_dot_product_attention(xq, xk, xv, attn_mask=attn_mask, dropout_p=dropout_p, is_causal=True)
-        else: # 不使用Flash Attention时，手动计算注意力
+        else:
+            # 不使用Flash Attention时，手动计算注意力
             # 计算注意力分数：Q与K的点积，除以头维度的平方根（缩放）
             scores = (xq @ xk.transpose(-2, -1)) / math.sqrt(self.head_dim)
-            # 手动添加因果掩码（上三角部分设为负无穷，避免关注未来位置）
+
+            # 手动添加因果掩码，对角线以上（未来位置）被屏蔽，上三角部分设为负无穷(-inf)，避免关注未来位置
+            # scores+mask, 扩展维度以匹配scores：(1, 1, seq_len, seq_len)
             scores = scores + torch.triu(
-                torch.full((seq_len, seq_len), float("-inf"), device=scores.device), # 上三角为-inf的矩阵
-                diagonal=1 # 对角线以上（未来位置）被屏蔽
-            ).unsqueeze(0).unsqueeze(0)  # scores+mask, 扩展维度以匹配scores：(1, 1, seq_len, seq_len)
+                torch.full((seq_len, seq_len), float("-inf"), device=scores.device),
+                diagonal=1
+            ).unsqueeze(0).unsqueeze(0)
 
             # 应用注意力掩码（若存在，如屏蔽padding token）
             if attention_mask is not None:
                 # 扩展掩码维度：(bsz, 1, 1, total_seq_len) → (bsz, 1, 1, total_seq_len)
                 extended_attention_mask = attention_mask.unsqueeze(1).unsqueeze(2)
-                extended_attention_mask = (1.0 - extended_attention_mask) * -1e9 # 掩码位置设为-1e9（softmax后接近0）
-                scores = scores + extended_attention_mask # 加到注意力分数上
+                # 掩码位置设为-1e9（softmax后接近0）
+                extended_attention_mask = (1.0 - extended_attention_mask) * -1e9
+                # 加到注意力分数上
+                scores = scores + extended_attention_mask
 
             # 计算注意力权重（softmax）并应用dropout
             scores = F.softmax(scores.float(), dim=-1).type_as(xq)
-            scores = self.attn_dropout(scores) # 注意力权重dropout
-            # 注意力权重与V相乘，得到注意力输出
-            output = scores @ xv # 形状：(bsz, n_local_heads, seq_len, head_dim)
+            scores = self.attn_dropout(scores)
+            # 注意力权重与V相乘，得到注意力输出，形状：(bsz, n_local_heads, seq_len, head_dim)
+            output = scores @ xv
 
-        # 调整输出维度并映射回隐藏层大小
-        output = output.transpose(1, 2).reshape(bsz, seq_len, -1) # 形状：(bsz, seq_len, n_local_heads×head_dim)
-        output = self.resid_dropout(self.o_proj(output)) # 输出投影+dropout，最终形状：(bsz, seq_len, hidden_size)
+        # 调整输出维度并映射回隐藏层大小，形状：(bsz, seq_len, n_local_heads×head_dim)
+        output = output.transpose(1, 2).reshape(bsz, seq_len, -1)
+
+        # 输出投影+dropout，最终形状：(bsz, seq_len, hidden_size)
+        output = self.resid_dropout(self.o_proj(output))
         return output, past_kv
 
 
@@ -344,8 +379,8 @@ class FeedForward(nn.Module):
                                    dropout率和激活函数类型等参数
         """
         super().__init__()
-        # 如果未指定中间层大小，则根据隐藏层大小自动计算并调整为64的倍数
         if config.intermediate_size is None:
+            # 未指定中间层大小，则根据隐藏层大小自动计算并调整为64的倍数
             intermediate_size = int(config.hidden_size * 8 / 3)
             config.intermediate_size = 64 * ((intermediate_size + 64 - 1) // 64)
         # 定义门控投影层，用于将隐藏状态映射到中间表示
