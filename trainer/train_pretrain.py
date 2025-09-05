@@ -26,7 +26,7 @@ warnings.filterwarnings('ignore')
 
 def Logger(message, *args):
     if not ddp or dist.get_rank() == 0:
-        logger.info(message, args)
+        logger.info(message, *args)
 
 
 def get_lr(current_step, total_steps, lr):
@@ -68,15 +68,15 @@ def train_epoch(epoch, wandb):
 
         if step % args.log_interval == 0:
             spend_time = time.time() - start_time
-            Logger(
-                'Epoch:[{}/{}]({}/{}) loss:{:.3f} lr:{:.12f} epoch_Time:{}min:'.format(
+            logger.info(
+                'Epoch:[{}/{}]({}/{}) loss:{:.3f} lr:{:.12f} epoch_Time:{}min:',
                     epoch + 1,
                     args.epochs,
                     step,
                     iter_per_epoch,
                     loss.item() * args.accumulation_steps,
                     optimizer.param_groups[-1]['lr'],
-                    spend_time / (step + 1) * iter_per_epoch // 60 - spend_time // 60))
+                    spend_time / (step + 1) * iter_per_epoch // 60 - spend_time // 60)
 
             if (wandb is not None) and (not ddp or dist.get_rank() == 0):
                 wandb.log({"loss": loss.item() * args.accumulation_steps,
@@ -101,7 +101,7 @@ def train_epoch(epoch, wandb):
 def init_model(lm_config):
     tokenizer = AutoTokenizer.from_pretrained('./model/')
     model = MiniMindForCausalLM(lm_config).to(args.device)
-    Logger(f'LLM可训练总参数量：{sum(p.numel() for p in model.parameters() if p.requires_grad) / 1e6:.3f} 百万')
+    logger.info(f'LLM可训练总参数量：{sum(p.numel() for p in model.parameters() if p.requires_grad) / 1e6:.3f} 百万')
     return model, tokenizer
 
 
