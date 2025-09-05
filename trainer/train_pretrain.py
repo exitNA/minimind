@@ -10,6 +10,7 @@ import argparse
 import time
 import math
 import warnings
+from loguru import logger
 import torch
 import torch.distributed as dist
 from torch import optim, nn
@@ -23,9 +24,9 @@ from dataset.lm_dataset import PretrainDataset
 warnings.filterwarnings('ignore')
 
 
-def Logger(content):
+def Logger(message, *args):
     if not ddp or dist.get_rank() == 0:
-        print(content)
+        logger.info(message, args)
 
 
 def get_lr(current_step, total_steps, lr):
@@ -143,7 +144,11 @@ if __name__ == "__main__":
     parser.add_argument("--data_path", type=str, default="../dataset/pretrain_hq.jsonl")
     args = parser.parse_args()
 
-    lm_config = MiniMindConfig(hidden_size=args.hidden_size, num_hidden_layers=args.num_hidden_layers, use_moe=args.use_moe)
+    lm_config = MiniMindConfig(
+        hidden_size=args.hidden_size,
+        num_hidden_layers=args.num_hidden_layers,
+        use_moe=args.use_moe
+    )
     args.save_dir = os.path.join(args.out_dir)
     os.makedirs(args.save_dir, exist_ok=True)
     os.makedirs(args.out_dir, exist_ok=True)
@@ -189,12 +194,13 @@ if __name__ == "__main__":
         sampler=train_sampler
     )
 
-    scaler = torch.cuda.amp.GradScaler(enabled=(args.dtype in ['float16', 'bfloat16']))
-    optimizer = optim.AdamW(model.parameters(), lr=args.learning_rate)
+    scaler = torch.amp.GradScaler('cuda', enabled=(args.dtype in ['float16', 'bfloat16']))
 
     if ddp:
         model._ddp_params_and_buffers_to_ignore = {"pos_cis"}
         model = DistributedDataParallel(model, device_ids=[ddp_local_rank])
+
+    optimizer = optim.AdamW(model.parameters(), lr=args.learning_rate)
 
     iter_per_epoch = len(train_loader)
     for epoch in range(args.epochs):
