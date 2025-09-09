@@ -30,42 +30,83 @@ def Logger(message, *args):
 
 
 def get_lr(current_step, total_steps, lr):
+    """
+    计算当前学习率，使用余弦退火策略
+
+    该函数根据当前训练步数和总步数，通过余弦退火算法计算当前的学习率值。
+    学习率会在训练过程中从初始值逐渐衰减到初始值的1/10。
+
+    参数:
+        current_step (int): 当前训练步数
+        total_steps (int): 总训练步数
+        lr (float): 初始学习率
+
+    返回:
+        float: 当前步数对应的学习率值
+    """
+
+    # 使用余弦退火公式计算学习率：基础值 + 余弦衰减部分
     return lr / 10 + 0.5 * lr * (1 + math.cos(math.pi * current_step / total_steps))
 
 
 def train_epoch(epoch, wandb):
+    """
+    在一个训练周期（epoch）中对模型进行训练。
+
+    参数:
+        epoch (int): 当前的训练轮次（epoch）编号。
+        wandb: 用于记录训练过程中的指标，如果为 None 则不记录。
+
+    返回值:
+        无返回值。该函数执行一个完整的训练 epoch，并可能保存模型检查点。
+    """
+
+    # 定义损失函数，使用交叉熵损失，不进行平均或求和操作
     loss_fct = nn.CrossEntropyLoss(reduction='none')
     start_time = time.time()
+
+    # 遍历训练数据加载器中的每个批次
     for step, (X, Y, loss_mask) in enumerate(train_loader):
+        # 将输入数据、标签和损失掩码移动到指定设备上
         X = X.to(args.device)
         Y = Y.to(args.device)
         loss_mask = loss_mask.to(args.device)
 
+        # 根据当前训练进度使用余弦退火策略计算学习率
         lr = get_lr(epoch * iter_per_epoch + step, args.epochs * iter_per_epoch, args.learning_rate)
         for param_group in optimizer.param_groups:
             param_group['lr'] = lr
 
+        # 使用自动混合精度上下文执行前向传播
         with ctx:
             res = model(X)
+            # 计算交叉熵损失并应用损失掩码
             loss = loss_fct(
                 res.logits.view(-1, res.logits.size(-1)),
                 Y.view(-1)
             ).view(Y.size())
             loss = (loss * loss_mask).sum() / loss_mask.sum()
+            # 加上辅助损失（如 MoE 模型中的辅助损失）
             loss += res.aux_loss
+            # 对损失进行梯度累积缩放
             loss = loss / args.accumulation_steps
 
+        # 反向传播并缩放梯度
         scaler.scale(loss).backward()
 
+        # 如果达到梯度累积步数，则更新模型参数
         if (step + 1) % args.accumulation_steps == 0:
             scaler.unscale_(optimizer)
+            # 梯度裁剪防止梯度爆炸
             torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
 
             scaler.step(optimizer)
             scaler.update()
 
+            # 清空优化器的梯度
             optimizer.zero_grad(set_to_none=True)
 
+        # 日志记录部分：每隔一定步数打印训练状态
         if step % args.log_interval == 0:
             spend_time = time.time() - start_time
             logger.info(
@@ -78,21 +119,25 @@ def train_epoch(epoch, wandb):
                     optimizer.param_groups[-1]['lr'],
                     spend_time / (step + 1) * iter_per_epoch // 60 - spend_time // 60)
 
+            # 如果启用了 wandb 且是主进程，则记录日志
             if (wandb is not None) and (not ddp or dist.get_rank() == 0):
                 wandb.log({"loss": loss.item() * args.accumulation_steps,
                            "lr": optimizer.param_groups[-1]['lr'],
                            "epoch_Time": spend_time / (step + 1) * iter_per_epoch // 60 - spend_time // 60})
 
+        # 模型保存部分：每隔一定步数保存模型检查点
         if (step + 1) % args.save_interval == 0 and (not ddp or dist.get_rank() == 0):
             model.eval()
             moe_path = '_moe' if lm_config.use_moe else ''
             ckp = f'{args.save_dir}/pretrain_{lm_config.hidden_size}{moe_path}.pth'
 
+            # 处理分布式训练下的模型状态字典
             if isinstance(model, torch.nn.parallel.DistributedDataParallel):
                 state_dict = model.module.state_dict()
             else:
                 state_dict = model.state_dict()
 
+            # 转换为半精度并保存模型
             state_dict = {k: v.half() for k, v in state_dict.items()}  # 半精度保存
             torch.save(state_dict, ckp)
             model.train()
