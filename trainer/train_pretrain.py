@@ -65,6 +65,8 @@ def train_epoch(epoch, wandb):
     loss_fct = nn.CrossEntropyLoss(reduction='none')
     start_time = time.time()
 
+    master_node = (not ddp or dist.get_rank() == 0)
+
     # 遍历训练数据加载器中的每个批次
     for step, (X, Y, loss_mask) in enumerate(train_loader):
         # 将输入数据、标签和损失掩码移动到指定设备上
@@ -120,13 +122,13 @@ def train_epoch(epoch, wandb):
                     spend_time / (step + 1) * iter_per_epoch // 60 - spend_time // 60)
 
             # 如果启用了 wandb 且是主进程，则记录日志
-            if (wandb is not None) and (not ddp or dist.get_rank() == 0):
+            if (wandb is not None) and master_node:
                 wandb.log({"loss": loss.item() * args.accumulation_steps,
                            "lr": optimizer.param_groups[-1]['lr'],
                            "epoch_Time": spend_time / (step + 1) * iter_per_epoch // 60 - spend_time // 60})
 
         # 模型保存部分：每隔一定步数保存模型检查点
-        if (step + 1) % args.save_interval == 0 and (not ddp or dist.get_rank() == 0):
+        if (step + 1) % args.save_interval == 0 and master_node:
             model.eval()
             moe_path = '_moe' if lm_config.use_moe else ''
             ckp = f'{args.save_dir}/pretrain_{lm_config.hidden_size}{moe_path}.pth'
@@ -146,7 +148,7 @@ def train_epoch(epoch, wandb):
 def init_model(lm_config):
     tokenizer = AutoTokenizer.from_pretrained('./model/')
     model = MiniMindForCausalLM(lm_config).to(args.device)
-    logger.info(f'LLM可训练总参数量：{sum(p.numel() for p in model.parameters() if p.requires_grad) / 1e6:.3f} 百万')
+    logger.info('LLM可训练总参数量：{:.3f} 百万', sum(p.numel() for p in model.parameters() if p.requires_grad) / 1e6)
     return model, tokenizer
 
 
