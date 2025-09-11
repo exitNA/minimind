@@ -622,8 +622,8 @@ class MiniMindForCausalLM(PreTrainedModel, GenerationMixin):
         )
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
         logits = self.lm_head(h[:, slice_indices, :])
-        self.OUT.__setitem__('last_hidden_state', h)
-        self.OUT.__setitem__('logits', logits)
-        self.OUT.__setitem__('aux_loss', aux_loss)
-        self.OUT.__setitem__('past_key_values', past_kvs)
+        self.OUT['last_hidden_state'] = h
+        self.OUT['logits'] = logits
+        self.OUT['aux_loss'] = aux_loss
+        self.OUT['past_key_values'] = past_kvs
         return self.OUT
